@@ -185,13 +185,14 @@ async def process_genre(
     status_msg = await callback.message.answer(get_text("generating_lyrics", lang))
 
     try:
-        lyrics = await llm_service.generate_lyrics(
-            name=data["name"],
-            occasion=data["occasion"],
-            details=data["details"],
-            genre=genre_style,
-            language=lang,
-        )
+        async with UIAnimator(message=status_msg, lang=lang, show_progress_bar=False):
+            lyrics = await llm_service.generate_lyrics(
+                name=data["name"],
+                occasion=data["occasion"],
+                details=data["details"],
+                genre=genre_style,
+                language=lang,
+            )
     except LLMServiceError as err:
         logger.error("Failed to generate lyrics: %s", err)
         await status_msg.edit_text(
@@ -255,13 +256,14 @@ async def process_preview_action(
         status_msg = await callback.message.answer(get_text("rewriting_lyrics", lang))
 
         try:
-            new_lyrics = await llm_service.generate_lyrics(
-                name=data["name"],
-                occasion=data["occasion"],
-                details=data["details"],
-                genre=data["genre"],
-                language=lang,
-            )
+            async with UIAnimator(message=status_msg, lang=lang, show_progress_bar=False):
+                new_lyrics = await llm_service.generate_lyrics(
+                    name=data["name"],
+                    occasion=data["occasion"],
+                    details=data["details"],
+                    genre=data["genre"],
+                    language=lang,
+                )
         except LLMServiceError as err:
             logger.error("Failed to rewrite lyrics: %s", err)
             await status_msg.edit_text(
@@ -299,7 +301,7 @@ async def process_preview_action(
             await bot.send_chat_action(chat_id=chat_id, action=ChatAction.RECORD_VOICE)
 
             # 2. Animate waiting status while submitting and generating with Suno
-            async with UIAnimator(message=status_msg, lang=lang):
+            async with UIAnimator(message=status_msg, lang=lang, show_progress_bar=True) as animator:
                 task_id = await suno_service.create_song_task(
                     lyrics=data["lyrics"],
                     style=data["genre"],
@@ -308,8 +310,10 @@ async def process_preview_action(
                 audio_url = await suno_service.wait_for_completion(
                     task_id=task_id,
                     timeout=240,
-                    interval=5,
+                    interval=2.0,
+                    on_progress=animator.update_progress,
                 )
+                await animator.update_progress(100)
 
             # 3. Upload and send audio to Telegram user
             await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VOICE)
@@ -333,7 +337,10 @@ async def process_preview_action(
                 title=title,
                 performer="Suno AI",
             )
-            await status_msg.delete()
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
 
             # Preserve user language and clear order data
             await state.set_data({"lang": lang})

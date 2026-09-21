@@ -215,6 +215,21 @@ TEXTS: dict[str, dict[str, str]] = {
         LANG_KK: "🎵 <b>Suno AI әнді студияда жазуда...</b>\n<i>Бұл шамамен 1-2 минут уақыт алады.</i>",
         LANG_EN: "🎵 <b>Suno AI is generating the studio track...</b>\n<i>This typically takes 1-2 minutes.</i>",
     },
+    "progress_title": {
+        LANG_RU: "Создание вашей песни...",
+        LANG_KK: "Әніңіз жасалуда...",
+        LANG_EN: "Generating your song...",
+    },
+    "progress_sec": {
+        LANG_RU: "сек",
+        LANG_KK: "сек",
+        LANG_EN: "s",
+    },
+    "progress_ready": {
+        LANG_RU: "Готово! Отправляем аудио...",
+        LANG_KK: "Дайын! Аудио жіберілуде...",
+        LANG_EN: "Done! Sending audio...",
+    },
     "preview_lyrics": {
         LANG_RU: (
             "🎵 <b>Готовый текст для «{name}»</b>\n"

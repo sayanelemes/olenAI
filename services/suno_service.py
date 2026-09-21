@@ -176,7 +176,8 @@ class SunoService:
         self,
         task_id: str,
         timeout: int = 240,
-        interval: int = 5,
+        interval: float = 2.0,
+        on_progress: Any = None,
     ) -> str:
         """
         Poll Apiframe job status via GET /v2/jobs/{task_id} until COMPLETED.
@@ -184,12 +185,27 @@ class SunoService:
 
         :param task_id: The job ID returned by create_song_task.
         :param timeout: Maximum seconds to wait.
-        :param interval: Polling interval in seconds.
+        :param interval: Polling interval in seconds (default 2.0s for fast detection).
+        :param on_progress: Optional async or sync callback(percent: int) called when progress is reported.
         :return: Public URL to the generated MP3 file.
         """
         if self._use_mock:
             logger.info("[MOCK] Simulating audio generation delay (asyncio.sleep(4)) for %s...", task_id)
+            if on_progress:
+                try:
+                    res = on_progress(50)
+                    if asyncio.iscoroutine(res):
+                        await res
+                except Exception:
+                    pass
             await asyncio.sleep(4)
+            if on_progress:
+                try:
+                    res = on_progress(100)
+                    if asyncio.iscoroutine(res):
+                        await res
+                except Exception:
+                    pass
             logger.info("[MOCK] Generation complete! Returning test audio URL: %s", self._mock_audio_url)
             return self._mock_audio_url
 
@@ -197,7 +213,7 @@ class SunoService:
         session = await self._get_session()
 
         start_time = time.monotonic()
-        logger.info("Polling Apiframe job %s (timeout=%ds, interval=%ds)", task_id, timeout, interval)
+        logger.info("Polling Apiframe job %s (timeout=%ds, interval=%.1fs)", task_id, timeout, interval)
 
         while time.monotonic() - start_time < timeout:
             try:
@@ -220,10 +236,28 @@ class SunoService:
                         status = str(data.get("status") or "").upper()
                         logger.debug("Apiframe job %s status: %s", task_id, status)
 
+                        # Report progress if provided by Apiframe
+                        if on_progress:
+                            raw_prog = data.get("progress")
+                            if raw_prog is not None:
+                                try:
+                                    res = on_progress(int(raw_prog))
+                                    if asyncio.iscoroutine(res):
+                                        await res
+                                except Exception as exc:
+                                    logger.debug("Error invoking on_progress callback: %s", exc)
+
                         if status == "COMPLETED":
                             audio_url = self._extract_audio_url(data)
                             if audio_url:
                                 logger.info("Apiframe job %s completed! Audio URL: %s", task_id, audio_url)
+                                if on_progress:
+                                    try:
+                                        res = on_progress(100)
+                                        if asyncio.iscoroutine(res):
+                                            await res
+                                    except Exception:
+                                        pass
                                 return audio_url
                             logger.warning("Job %s COMPLETED, waiting for audio payload: %s", task_id, data)
 
@@ -256,6 +290,7 @@ class SunoService:
         style: str,
         title: str = "Поздравительная песня",
         timeout: int = 240,
+        on_progress: Any = None,
     ) -> str:
         """
         Convenience end-to-end method: creates song task and awaits completion.
@@ -265,40 +300,59 @@ class SunoService:
             return self._mock_audio_url
 
         task_id = await self.create_song_task(lyrics=lyrics, style=style, title=title)
-        return await self.wait_for_completion(task_id=task_id, timeout=timeout)
+        return await self.wait_for_completion(task_id=task_id, timeout=timeout, on_progress=on_progress)
 
     def _extract_audio_url(self, data: dict[str, Any]) -> str | None:
-        """Extract direct audio URL from Apiframe result formats."""
+        """
+        Extract direct audio URL from Apiframe result formats.
+        Supports audioUrl (camelCase), audio_url (snake_case), mp3_url, and url.
+        """
         result = data.get("result")
+
+        # Helper to extract from single dictionary item
+        def _get_url_from_item(item: Any) -> str | None:
+            if not isinstance(item, dict):
+                if isinstance(item, str) and item.startswith("http"):
+                    return item
+                return None
+            return (
+                item.get("audioUrl")
+                or item.get("audio_url")
+                or item.get("mp3_url")
+                or item.get("url")
+                or item.get("audio")
+            )
 
         # 1. Result is list of tracks / URLs
         if isinstance(result, list) and len(result) > 0:
             for item in result:
-                if isinstance(item, dict):
-                    url = item.get("audio_url") or item.get("mp3_url") or item.get("url")
-                    if url:
-                        return str(url)
-                elif isinstance(item, str) and item.startswith("http"):
-                    return item
+                url = _get_url_from_item(item)
+                if url:
+                    return str(url)
 
         # 2. Result is dictionary
         if isinstance(result, dict):
-            url = result.get("audio_url") or result.get("mp3_url") or result.get("url")
+            # Check result directly
+            url = _get_url_from_item(result)
             if url:
                 return str(url)
 
-            for key in ("tracks", "clips", "output", "audio_urls"):
-                if key in result and isinstance(result[key], list) and len(result[key]) > 0:
-                    first = result[key][0]
-                    if isinstance(first, dict):
-                        sub_url = first.get("audio_url") or first.get("mp3_url") or first.get("url")
+            # Check sub-arrays like result["tracks"], result["clips"], etc.
+            for key in ("tracks", "clips", "output", "audio_urls", "data"):
+                sub_list = result.get(key)
+                if isinstance(sub_list, list) and len(sub_list) > 0:
+                    for item in sub_list:
+                        sub_url = _get_url_from_item(item)
                         if sub_url:
                             return str(sub_url)
-                    elif isinstance(first, str) and first.startswith("http"):
-                        return first
 
         # 3. Direct top-level fields
-        direct_url = data.get("audio_url") or data.get("mp3_url")
+        direct_url = (
+            data.get("audioUrl")
+            or data.get("audio_url")
+            or data.get("mp3_url")
+            or data.get("url")
+        )
         if direct_url:
             return str(direct_url)
 

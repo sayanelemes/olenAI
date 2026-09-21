@@ -74,15 +74,24 @@ async def main() -> None:
     # Register all handlers
     dp.include_router(get_main_router())
 
+    from aiogram.exceptions import TelegramNetworkError
+
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        logger.info(
-            "Bot successfully started! (Gemini: %s | Suno: Apiframe.ai)",
-            settings.GEMINI_MODEL,
-        )
-        await dp.start_polling(bot)
-    except Exception as exc:
-        logger.exception("Fatal error during bot polling: %s", exc)
+        while True:
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                logger.info(
+                    "Bot successfully started! (Gemini: %s | Suno: Apiframe.ai)",
+                    settings.GEMINI_MODEL,
+                )
+                await dp.start_polling(bot)
+                break
+            except (TelegramNetworkError, aiohttp.ClientError, ConnectionResetError) as net_err:
+                logger.warning("Temporary network error during bot polling: %s. Retrying in 3 seconds...", net_err)
+                await asyncio.sleep(3)
+            except Exception as exc:
+                logger.exception("Fatal error during bot polling: %s", exc)
+                break
     finally:
         logger.info("Shutting down bot and closing active sessions...")
         await gemini_service.close()
