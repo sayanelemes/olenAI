@@ -81,16 +81,16 @@ TEXTS: dict[str, dict[str, str]] = {
     # -----------------------------------------------------------------------
     "step_name": {
         LANG_RU: (
-            "🎵 <b>Шаг 1 из 4: Для кого создаем песню?</b>\n\n"
-            "Напишите имя адресата (например: «Александр», «Любимая Катя», «Мама Алия»):"
+            "👤 <b>Шаг 2 из 4: Как зовут адресата?</b>\n\n"
+            "Напишите имя того, для кого мы создаем песню (например: «Азамат», «Алина», «Алексей»):"
         ),
         LANG_KK: (
-            "🎵 <b>1-қадам (4-тен): Ән кімге арналады?</b>\n\n"
-            "Құттықтау иесінің есімін жазыңыз (мысалы: «Айдар», «Анашым Гүлнар», «Бастығымыз Арман»):"
+            "👤 <b>2-қадам (4-тен): Ән кімге арналады?</b>\n\n"
+            "Құттықтау иесінің есімін жазыңыз (мысалы: «Азамат», «Алина», «Айдар»):"
         ),
         LANG_EN: (
-            "🎵 <b>Step 1 of 4: Who is this song for?</b>\n\n"
-            "Type the recipient's name (e.g., 'Alexander', 'Sweet Sarah', 'Mom Diana'):"
+            "👤 <b>Step 2 of 4: Who is this song for?</b>\n\n"
+            "Type the recipient's name (e.g., 'Azamat', 'Alina', 'Alex'):"
         ),
     },
     "name_error": {
@@ -100,15 +100,15 @@ TEXTS: dict[str, dict[str, str]] = {
     },
     "step_occasion_first": {
         LANG_RU: (
-            "🎉 <b>Шаг 1 из 3: Какой повод для песни?</b>\n\n"
+            "🎉 <b>Шаг 1 из 4: Какой повод для песни?</b>\n\n"
             "Выберите вариант из списка ниже или отправьте свой текст сообщением:"
         ),
         LANG_KK: (
-            "🎉 <b>1-қадам (3-тен): Қандай мереке немесе себеп?</b>\n\n"
+            "🎉 <b>1-қадам (4-тен): Қандай мереке немесе себеп?</b>\n\n"
             "Төмендегі нұсқалардың бірін таңдаңыз немесе өз нұсқаңызды жазыңыз:"
         ),
         LANG_EN: (
-            "🎉 <b>Step 1 of 3: What is the occasion?</b>\n\n"
+            "🎉 <b>Step 1 of 4: What is the occasion?</b>\n\n"
             "Choose an option from the list below or send your own text:"
         ),
     },
@@ -136,18 +136,21 @@ TEXTS: dict[str, dict[str, str]] = {
     },
     "step_details": {
         LANG_RU: (
+            "👤 Адресат: <b>{name}</b>\n"
             "🎈 Повод: <b>{occasion}</b>\n\n"
             "<b>Шаг 3 из 4: Факты, черты характера и пожелания</b>\n\n"
             "Расскажите подробнее об адресате (хобби, любимые фразы, забавные привычки или пожелания):\n"
             "<i>Например: Любит путешествия, программирует по ночам, пьет зеленый чай. Желаем ярких побед!</i>"
         ),
         LANG_KK: (
-            "🎈 Мереке: <b>{occasion}</b>\n\n"
+            "👤 Құттықтау иесі: <b>{name}</b>\n"
+            "🎈 Себеп: <b>{occasion}</b>\n\n"
             "<b>3-қадам (4-тен): Қызықты деректер, мінезі мен тілектер</b>\n\n"
-            "Құттықтау иесі туралы толығырақ айтып беріңіз (хоббиі, жақсы көретін ісі, қызықты сәттері, арнайы тілектер):\n"
+            "Ол туралы толығырақ айтып беріңіз (хоббиі, жақсы көретін ісі, қызықты сәттері, арнайы тілектер):\n"
             "<i>Мысалы: Саяхаттағанды жақсы көреді, таңертең кофе ішеді, көлікті жылдам жүргізеді. Зор денсаулық пен бақыт тілейміз!</i>"
         ),
         LANG_EN: (
+            "👤 Recipient: <b>{name}</b>\n"
             "🎈 Occasion: <b>{occasion}</b>\n\n"
             "<b>Step 3 of 4: Facts, personal traits, and wishes</b>\n\n"
             "Tell us more about the person (hobbies, funny quirks, favorite memories, or specific wishes):\n"
@@ -600,6 +603,9 @@ def t(key: str, lang: str = LANG_RU, **kwargs: Any) -> str:
     if kwargs:
         try:
             return template.format(**kwargs)
+        except KeyError:
+            from collections import defaultdict
+            return template.format_map(defaultdict(str, kwargs))
         except Exception:
             return template
     return template

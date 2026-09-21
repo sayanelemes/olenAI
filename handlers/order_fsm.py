@@ -81,10 +81,10 @@ async def process_occasion_callback(
 
     occasion = callback_data.value
     await state.update_data(occasion=occasion)
-    await state.set_state(OrderStates.details)
+    await state.set_state(OrderStates.name)
 
     await callback.message.answer(
-        text=get_text("step_details_name_facts", lang),
+        text=get_text("step_name", lang),
         reply_markup=get_cancel_keyboard(lang),
     )
 
@@ -106,16 +106,44 @@ async def process_occasion_text(message: Message, state: FSMContext) -> None:
         return
 
     await state.update_data(occasion=occasion)
-    await state.set_state(OrderStates.details)
+    await state.set_state(OrderStates.name)
 
     await message.answer(
-        text=get_text("step_details_name_facts", lang),
+        text=get_text("step_name", lang),
         reply_markup=get_cancel_keyboard(lang),
     )
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Handle Name & Personal Facts -> Ask for Genre (or Regenerate)
+# Step 2: Handle Recipient Name -> Ask for Personal Facts / Details
+# ---------------------------------------------------------------------------
+@router.message(OrderStates.name, F.text)
+async def process_name(message: Message, state: FSMContext) -> None:
+    """
+    Save recipient name and prompt for personal facts and wishes.
+    """
+    data = await state.get_data()
+    lang = data.get("lang", DEFAULT_LANGUAGE)
+
+    raw_name = (message.text or "").strip()
+    if len(raw_name) < 2 or len(raw_name) > 60:
+        await message.answer(
+            text=get_text("name_error", lang),
+            reply_markup=get_cancel_keyboard(lang),
+        )
+        return
+
+    await state.update_data(name=raw_name)
+    await state.set_state(OrderStates.details)
+
+    await message.answer(
+        text=get_text("step_details", lang, name=raw_name, occasion=data.get("occasion", "Праздник")),
+        reply_markup=get_cancel_keyboard(lang),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Handle Personal Facts -> Ask for Genre (or Regenerate)
 # ---------------------------------------------------------------------------
 @router.message(OrderStates.details, F.text)
 async def process_details(
@@ -124,10 +152,10 @@ async def process_details(
     llm_service: LLMService,
 ) -> None:
     """
-    Save recipient name and 2-3 personal facts in one message.
+    Save 2-3 personal facts/wishes.
     If genre is already selected (e.g. from '🔄 Изменить детали'),
     style is preserved and we directly re-run moderation and lyrics generation.
-    Otherwise, prompts for music genre (Step 3).
+    Otherwise, prompts for music genre (Step 4).
     """
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
@@ -140,11 +168,8 @@ async def process_details(
         )
         return
 
-    # Extract recipient name from the first sentence / part before period or newline
-    first_part = raw_text.split("\n")[0].split(".")[0].strip()
-    name = first_part[:40] if first_part else "Друг"
-
-    await state.update_data(name=name, details=raw_text)
+    name = data.get("name") or ("Дос" if lang == "kk" else "Друг")
+    await state.update_data(details=raw_text)
 
     # Check if genre was already chosen previously (e.g. returning via «🔄 Изменить детали»)
     existing_genre = data.get("genre")
@@ -339,9 +364,11 @@ async def process_preview_action(
         except Exception:
             pass
         # Preserve occasion and genre, just re-ask for details
+        name = data.get("name", "Друг")
+        occasion = data.get("occasion", "Праздник")
         await state.set_state(OrderStates.details)
         await callback.message.answer(
-            text=get_text("step_details_name_facts", lang),
+            text=get_text("step_details", lang, name=name, occasion=occasion),
             reply_markup=get_cancel_keyboard(lang),
         )
         return

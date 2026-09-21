@@ -119,6 +119,7 @@ if TEST_PAYMENT_MODE:
 class OrderStates(StatesGroup):
     language = State()
     occasion = State()
+    name = State()
     details = State()
     genre = State()
     preview_approval = State()
@@ -688,21 +689,21 @@ async def cmd_start_new_order(event: Message | CallbackQuery, state: FSMContext)
 
 @router.callback_query(OrderStates.occasion, F.data.startswith("occ:"))
 async def cb_occasion(callback: CallbackQuery, state: FSMContext) -> None:
-    """Step 1 -> Step 2: Occasion selected via button."""
+    """Step 1 -> Step 2: Occasion selected via button. Prompt for recipient name."""
     await callback.answer()
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
 
     occasion_val = callback.data.split(":", 1)[1]
     await state.update_data(occasion=occasion_val)
-    await state.set_state(OrderStates.details)
+    await state.set_state(OrderStates.name)
 
-    await callback.message.answer(text=get_text("step_details_name_facts", lang))
+    await callback.message.answer(text=get_text("step_name", lang))
 
 
 @router.message(OrderStates.occasion, F.text)
 async def msg_custom_occasion(message: Message, state: FSMContext) -> None:
-    """Step 1 -> Step 2: Custom occasion typed as text."""
+    """Step 1 -> Step 2: Custom occasion typed as text. Prompt for recipient name."""
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
 
@@ -712,13 +713,32 @@ async def msg_custom_occasion(message: Message, state: FSMContext) -> None:
         return
 
     await state.update_data(occasion=occasion)
+    await state.set_state(OrderStates.name)
+    await message.answer(get_text("step_name", lang))
+
+
+@router.message(OrderStates.name, F.text)
+async def msg_name(message: Message, state: FSMContext) -> None:
+    """Step 2 -> Step 3: Recipient name received. Prompt for personal facts/details."""
+    data = await state.get_data()
+    lang = data.get("lang", DEFAULT_LANGUAGE)
+
+    raw_name = (message.text or "").strip()
+    if len(raw_name) < 2 or len(raw_name) > 60:
+        await message.answer(get_text("name_error", lang))
+        return
+
+    await state.update_data(name=raw_name)
     await state.set_state(OrderStates.details)
-    await message.answer(get_text("step_details_name_facts", lang))
+
+    await message.answer(
+        text=get_text("step_details", lang, name=raw_name, occasion=data.get("occasion", "Праздник")),
+    )
 
 
 @router.message(OrderStates.details, F.text)
 async def msg_details(message: Message, state: FSMContext) -> None:
-    """Step 2 -> Step 3: Name & facts received. Prompt for music genre."""
+    """Step 3 -> Step 4: Personal facts/details received. Prompt for music genre."""
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
 
@@ -727,10 +747,7 @@ async def msg_details(message: Message, state: FSMContext) -> None:
         await message.answer(get_text("details_error", lang))
         return
 
-    first_part = raw_text.split("\n")[0].split(".")[0].strip()
-    name = first_part[:40] if first_part else ("Дос" if lang == "kk" else "Друг")
-
-    await state.update_data(name=name, details=raw_text)
+    await state.update_data(details=raw_text)
     await state.set_state(OrderStates.genre)
 
     await message.answer(
