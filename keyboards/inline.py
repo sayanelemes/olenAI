@@ -61,7 +61,7 @@ def get_genres_kb(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     for item in genres:
         builder.button(
             text=item["label"],
-            callback_data=GenreCallback(value=item["style"]).pack(),
+            callback_data=GenreCallback(value=item["id"]).pack(),
         )
 
     # 2 buttons per row for all genres
@@ -77,21 +77,23 @@ def get_genres_kb(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_preview_kb(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
+def get_preview_kb(lang: str = DEFAULT_LANGUAGE, is_test: bool = False) -> InlineKeyboardMarkup:
     """
-    Keyboard for lyrics preview approval:
-    [✨ Запустить генерацию]
-    [✏️ Переписать]
+    Keyboard for lyrics preview and agreement:
+    [✅ Все верно, поем! (Тест: 0 ⭐️)] (in test mode)
+    or [✅ Все верно, поем!] (in real mode)
+    [🔄 Изменить детали]
     [❌ Отмена]
     """
     builder = InlineKeyboardBuilder()
+    approve_text = t("btn_approve_sing_test" if is_test else "btn_approve_sing", lang)
     builder.button(
-        text=t("btn_approve", lang),
+        text=approve_text,
         callback_data=PreviewActionCallback(action="approve").pack(),
     )
     builder.button(
-        text=t("btn_rewrite", lang),
-        callback_data=PreviewActionCallback(action="rewrite").pack(),
+        text=t("btn_edit_details", lang),
+        callback_data=PreviewActionCallback(action="edit_details").pack(),
     )
     builder.button(
         text=t("btn_cancel", lang),

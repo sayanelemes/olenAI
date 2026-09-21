@@ -81,9 +81,15 @@ async def cmd_help(event: Message | CallbackQuery, state: FSMContext) -> None:
 
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await event.message.answer(text=help_text, reply_markup=get_start_keyboard(lang))
+        await event.message.answer(
+            text=help_text,
+            reply_markup=get_start_keyboard(lang),
+        )
     else:
-        await event.answer(text=help_text, reply_markup=get_start_keyboard(lang))
+        await event.answer(
+            text=help_text,
+            reply_markup=get_start_keyboard(lang),
+        )
 
 
 @router.callback_query(F.data == "cancel_order")
@@ -101,6 +107,12 @@ async def process_cancel(event: Message | CallbackQuery, state: FSMContext) -> N
 
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await event.message.answer(text=text, reply_markup=get_start_keyboard(lang))
+        await event.message.answer(
+            text=text,
+            reply_markup=get_start_keyboard(lang),
+        )
     else:
-        await event.answer(text=text, reply_markup=get_start_keyboard(lang))
+        await event.answer(
+            text=text,
+            reply_markup=get_start_keyboard(lang),
+        )

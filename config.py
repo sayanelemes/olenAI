@@ -49,6 +49,18 @@ class Settings(BaseSettings):
         description="Sample MP3 URL returned in mock mode"
     )
 
+    # Concurrency limit for Suno API tariff
+    MAX_CONCURRENT_GENERATIONS: int = Field(
+        default=5,
+        description="Maximum concurrent Suno generations allowed by API tariff (default: 5)"
+    )
+
+    # Free test payment mode (simulates payment without charging real Stars)
+    TEST_PAYMENT_MODE: bool = Field(
+        default=True,
+        description="If True, payment is simulated as free for testing without real Telegram Stars"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

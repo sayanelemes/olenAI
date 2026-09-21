@@ -18,7 +18,15 @@ __pycache__/
 # Logs
 *.log
 
+# Databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
 # IDE & OS files
 .idea/
 .vscode/
 .DS_Store
+

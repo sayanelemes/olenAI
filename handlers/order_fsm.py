@@ -1,9 +1,14 @@
 import logging
+import time
 from aiogram import Router, F, Bot
-from aiogram.enums import ChatAction
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, URLInputFile
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    PreCheckoutQuery,
+    LabeledPrice,
+)
 
 from keyboards.inline import (
     OccasionCallback,
@@ -15,76 +20,51 @@ from keyboards.inline import (
     get_cancel_keyboard,
     get_start_keyboard,
 )
+from config import get_settings
 from states.order import OrderStates
-from services.llm_service import LLMService, LLMServiceError
-from services.suno_service import (
-    SunoService,
-    SunoServiceError,
-    InsufficientCreditsError,
+from services.generation_queue import GenerationQueue
+from services.llm_service import LLMService
+from services.suno_service import SunoService
+from locales import (
+    DEFAULT_LANGUAGE,
+    get_genre_label,
+    get_genre_style,
+    get_text,
 )
-from services.ui_animator import UIAnimator
-from locales import get_text, DEFAULT_LANGUAGE
 
 logger = logging.getLogger(__name__)
 router = Router(name="order_fsm_router")
 
 
 # ---------------------------------------------------------------------------
-# Step 1: Start Order -> Ask for Recipient Name
+# Step 1: Start Order -> Select Occasion
 # ---------------------------------------------------------------------------
 @router.callback_query(F.data == "start_order")
 @router.message(Command("new_song"))
 async def start_order_flow(event: Message | CallbackQuery, state: FSMContext) -> None:
     """
     Entry point for creating a song order.
-    Preserves chosen language and prompts for the recipient's name.
+    Preserves chosen language and prompts for the occasion (Step 1).
     """
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
 
     # Clear previous order data while preserving user language
+    await state.clear()
     await state.set_data({"lang": lang})
-    await state.set_state(OrderStates.name)
+    await state.set_state(OrderStates.occasion)
 
-    prompt_text = get_text("step_name", lang)
+    prompt_text = get_text("step_occasion_first", lang)
 
     if isinstance(event, CallbackQuery):
         await event.answer()
-        await event.message.answer(text=prompt_text, reply_markup=get_cancel_keyboard(lang))
+        await event.message.answer(text=prompt_text, reply_markup=get_occasions_keyboard(lang))
     else:
-        await event.answer(text=prompt_text, reply_markup=get_cancel_keyboard(lang))
+        await event.answer(text=prompt_text, reply_markup=get_occasions_keyboard(lang))
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Handle Name -> Ask for Occasion
-# ---------------------------------------------------------------------------
-@router.message(OrderStates.name, F.text)
-async def process_recipient_name(message: Message, state: FSMContext) -> None:
-    """
-    Validate and save recipient name, prompt for occasion.
-    """
-    data = await state.get_data()
-    lang = data.get("lang", DEFAULT_LANGUAGE)
-
-    name = (message.text or "").strip()
-    if len(name) < 2 or len(name) > 60:
-        await message.answer(
-            text=get_text("name_error", lang),
-            reply_markup=get_cancel_keyboard(lang),
-        )
-        return
-
-    await state.update_data(name=name)
-    await state.set_state(OrderStates.occasion)
-
-    await message.answer(
-        text=get_text("step_occasion", lang, name=name),
-        reply_markup=get_occasions_keyboard(lang),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Step 3: Handle Occasion (button or text) -> Ask for Details
+# Step 1 -> Step 2: Handle Occasion (Button or Text) -> Ask for Name & Facts
 # ---------------------------------------------------------------------------
 @router.callback_query(OrderStates.occasion, OccasionCallback.filter())
 async def process_occasion_callback(
@@ -104,7 +84,7 @@ async def process_occasion_callback(
     await state.set_state(OrderStates.details)
 
     await callback.message.answer(
-        text=get_text("step_details", lang, occasion=occasion),
+        text=get_text("step_details_name_facts", lang),
         reply_markup=get_cancel_keyboard(lang),
     )
 
@@ -129,33 +109,59 @@ async def process_occasion_text(message: Message, state: FSMContext) -> None:
     await state.set_state(OrderStates.details)
 
     await message.answer(
-        text=get_text("step_details", lang, occasion=occasion),
+        text=get_text("step_details_name_facts", lang),
         reply_markup=get_cancel_keyboard(lang),
     )
 
 
 # ---------------------------------------------------------------------------
-# Step 4: Handle Details -> Ask for Music Genre
+# Step 2: Handle Name & Personal Facts -> Ask for Genre (or Regenerate)
 # ---------------------------------------------------------------------------
 @router.message(OrderStates.details, F.text)
-async def process_details(message: Message, state: FSMContext) -> None:
+async def process_details(
+    message: Message,
+    state: FSMContext,
+    llm_service: LLMService,
+) -> None:
     """
-    Save personal details and prompt for music genre.
+    Save recipient name and 2-3 personal facts in one message.
+    If genre is already selected (e.g. from '🔄 Изменить детали'),
+    style is preserved and we directly re-run moderation and lyrics generation.
+    Otherwise, prompts for music genre (Step 3).
     """
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
 
-    details = (message.text or "").strip()
-    if len(details) < 10 or len(details) > 1000:
+    raw_text = (message.text or "").strip()
+    if len(raw_text) < 5 or len(raw_text) > 1000:
         await message.answer(
             text=get_text("details_error", lang),
             reply_markup=get_cancel_keyboard(lang),
         )
         return
 
-    await state.update_data(details=details)
-    await state.set_state(OrderStates.genre)
+    # Extract recipient name from the first sentence / part before period or newline
+    first_part = raw_text.split("\n")[0].split(".")[0].strip()
+    name = first_part[:40] if first_part else "Друг"
 
+    await state.update_data(name=name, details=raw_text)
+
+    # Check if genre was already chosen previously (e.g. returning via «🔄 Изменить детали»)
+    existing_genre = data.get("genre")
+    if existing_genre:
+        await _moderate_and_generate_lyrics_step(
+            message=message,
+            state=state,
+            llm_service=llm_service,
+            name=name,
+            occasion=data.get("occasion", "Праздник"),
+            details=raw_text,
+            genre=existing_genre,
+            lang=lang,
+        )
+        return
+
+    await state.set_state(OrderStates.genre)
     await message.answer(
         text=get_text("step_genre", lang),
         reply_markup=get_genres_keyboard(lang),
@@ -163,7 +169,7 @@ async def process_details(message: Message, state: FSMContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 5: Handle Genre -> Generate Lyrics via Gemini in Selected Language
+# Step 3: Handle Genre -> Step 4: Moderate & Generate Lyrics via Gemini
 # ---------------------------------------------------------------------------
 @router.callback_query(OrderStates.genre, GenreCallback.filter())
 async def process_genre(
@@ -173,7 +179,8 @@ async def process_genre(
     llm_service: LLMService,
 ) -> None:
     """
-    Save chosen style and generate song lyrics in user's language (kk, ru, en).
+    Save chosen style and execute Step 4:
+    Unified Gemini call for moderation and lyrics generation in JSON mode.
     """
     await callback.answer()
     genre_style = callback_data.value
@@ -181,49 +188,113 @@ async def process_genre(
 
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
+    name = data.get("name", "Друг")
+    occasion = data.get("occasion", "Праздник")
+    details = data.get("details", "")
 
-    status_msg = await callback.message.answer(get_text("generating_lyrics", lang))
-
-    try:
-        async with UIAnimator(message=status_msg, lang=lang, show_progress_bar=False):
-            lyrics = await llm_service.generate_lyrics(
-                name=data["name"],
-                occasion=data["occasion"],
-                details=data["details"],
-                genre=genre_style,
-                language=lang,
-            )
-    except LLMServiceError as err:
-        logger.error("Failed to generate lyrics: %s", err)
-        await status_msg.edit_text(
-            text=get_text("lyrics_failed", lang, err=str(err)),
-            reply_markup=get_start_keyboard(lang),
-        )
-        # Keep user language upon clearing order state
-        await state.set_data({"lang": lang})
-        return
-
-    await state.update_data(lyrics=lyrics)
-    await state.set_state(OrderStates.preview_approval)
-
-    preview_text = get_text(
-        "preview_caption",
-        lang,
-        name=data["name"],
+    await _moderate_and_generate_lyrics_step(
+        message=callback.message,
+        state=state,
+        llm_service=llm_service,
+        name=name,
+        occasion=occasion,
+        details=details,
         genre=genre_style,
-        occasion=data["occasion"],
-        lyrics=lyrics,
-    )
-
-    await status_msg.delete()
-    await callback.message.answer(
-        text=preview_text,
-        reply_markup=get_preview_approval_keyboard(lang),
+        lang=lang,
     )
 
 
 # ---------------------------------------------------------------------------
-# Step 6: Preview Actions (Approve -> Suno, Rewrite -> Gemini, Cancel)
+# Helper: Step 4 (Gemini JSON Moderation + Lyrics) -> Step 5 (Preview + Disclaimer)
+# ---------------------------------------------------------------------------
+async def _moderate_and_generate_lyrics_step(
+    message: Message,
+    state: FSMContext,
+    llm_service: LLMService,
+    name: str,
+    occasion: str,
+    details: str,
+    genre: str,
+    lang: str,
+) -> None:
+    """
+    Unified Step 4 & 5:
+    Calls Gemini in JSON mode:
+    - If is_safe == False: outputs clear reason, does NOT reset occasion/genre,
+      keeps user at OrderStates.details to rephrase personal facts.
+    - If is_safe == True: shows lyrics, title, mandatory AI disclaimer, and approval keyboard.
+    """
+    status_msg = await message.answer(get_text("generating_lyrics", lang))
+
+    genre_label = get_genre_label(genre, lang)
+    genre_style = get_genre_style(genre)
+    full_genre_prompt = f"{genre_label} ({genre_style})"
+
+    try:
+        res = await llm_service.moderate_and_generate_lyrics(
+            name=name,
+            occasion=occasion,
+            details=details,
+            genre=full_genre_prompt,
+            language=lang,
+        )
+    except Exception as err:
+        logger.error("Failed to generate lyrics via Gemini: %s", err)
+        await status_msg.edit_text(
+            text=get_text("lyrics_failed", lang, err=str(err)),
+            reply_markup=get_start_keyboard(lang),
+        )
+        await state.clear()
+        await state.set_data({"lang": lang})
+        return
+
+    # 1. Moderation Check
+    if not res.get("is_safe", True):
+        reason = res.get("reason") or "Контент нарушает правила безопасности."
+        logger.warning("Input moderation rejected. Reason: %s", reason)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        # Return user to Step 2 without clearing occasion or genre
+        await state.set_state(OrderStates.details)
+        await message.answer(
+            text=get_text("moderation_failed", lang, reason=reason),
+            reply_markup=get_cancel_keyboard(lang),
+        )
+        return
+
+    # 2. Moderation Passed: Display Lyrics and Mandatory Disclaimer (Step 5)
+    lyrics = res.get("lyrics", "").strip()
+    title = res.get("title", f"Песня для {name}").strip()
+
+    await state.update_data(lyrics=lyrics, title=title)
+    await state.set_state(OrderStates.preview_approval)
+
+    preview_text = get_text(
+        "preview_lyrics",
+        lang,
+        name=name,
+        genre=genre_label,
+        occasion=occasion,
+        lyrics=lyrics,
+    )
+
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
+
+    settings = get_settings()
+    await message.answer(
+        text=preview_text,
+        reply_markup=get_preview_approval_keyboard(lang, is_test=settings.TEST_PAYMENT_MODE),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Preview Actions (Approve -> Stars Invoice / Free Test, Edit, Cancel)
 # ---------------------------------------------------------------------------
 @router.callback_query(OrderStates.preview_approval, PreviewActionCallback.filter())
 async def process_preview_action(
@@ -231,16 +302,21 @@ async def process_preview_action(
     callback_data: PreviewActionCallback,
     state: FSMContext,
     bot: Bot,
-    llm_service: LLMService,
     suno_service: SunoService,
+    generation_queue: GenerationQueue,
 ) -> None:
     """
-    Handle user decision: approve audio generation, rewrite lyrics, or cancel.
-    Includes handling for Apiframe 402 Insufficient credits.
+    Handle user decision:
+    - 'approve':
+      * In TEST_PAYMENT_MODE: simulates free payment (0 Stars), checks health, and submits job immediately.
+      * In Real mode: Transitions to waiting_payment and sends Telegram Stars (60 XTR) invoice.
+    - 'edit_details': Returns to Step 2 (OrderStates.details) keeping selected genre and occasion.
+    - 'cancel': Cancels order flow.
     """
     action = callback_data.action
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
+    settings = get_settings()
 
     if action == "cancel":
         await callback.answer()
@@ -256,159 +332,180 @@ async def process_preview_action(
         )
         return
 
-    if action == "rewrite":
+    if action == "edit_details":
         await callback.answer()
         try:
             await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
-        status_msg = await callback.message.answer(get_text("rewriting_lyrics", lang))
-
-        try:
-            async with UIAnimator(message=status_msg, lang=lang, show_progress_bar=False):
-                new_lyrics = await llm_service.generate_lyrics(
-                    name=data["name"],
-                    occasion=data["occasion"],
-                    details=data["details"],
-                    genre=data["genre"],
-                    language=lang,
-                )
-        except LLMServiceError as err:
-            logger.error("Failed to rewrite lyrics: %s", err)
-            await status_msg.edit_text(
-                text=get_text("lyrics_failed", lang, err=str(err)),
-                reply_markup=get_preview_approval_keyboard(lang),
-            )
-            return
-
-        await state.update_data(lyrics=new_lyrics)
-        preview_text = get_text(
-            "preview_caption",
-            lang,
-            name=data["name"],
-            genre=data["genre"],
-            occasion=data["occasion"],
-            lyrics=new_lyrics,
-        )
-
-        await status_msg.delete()
+        # Preserve occasion and genre, just re-ask for details
+        await state.set_state(OrderStates.details)
         await callback.message.answer(
-            text=preview_text,
-            reply_markup=get_preview_approval_keyboard(lang),
+            text=get_text("step_details_name_facts", lang),
+            reply_markup=get_cancel_keyboard(lang),
         )
         return
 
     if action == "approve":
-        # 1. Guard against duplicate clicks
-        current_state = await state.get_state()
-        if current_state == OrderStates.generating_audio.state:
-            await callback.answer(get_text("already_generating", lang), show_alert=True)
+        # -------------------------------------------------------------------
+        # Test / Free Payment Mode
+        # -------------------------------------------------------------------
+        if settings.TEST_PAYMENT_MODE:
+            await callback.answer()
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
+            # Pre-checkout health check to Apiframe
+            is_healthy = await suno_service.check_health(timeout=3.0)
+            if not is_healthy:
+                logger.warning(
+                    "Test payment aborted for user %d: Apiframe Suno API is unhealthy/unreachable.",
+                    callback.from_user.id,
+                )
+                await callback.message.answer(
+                    text=get_text("pre_checkout_error", lang),
+                    reply_markup=get_preview_approval_keyboard(lang, is_test=True),
+                )
+                return
+
+            # Prevent double generation
+            await state.set_state(OrderStates.generating_audio)
+            await callback.message.answer(get_text("test_payment_confirmed", lang))
+
+            name = data.get("name", "Друг")
+            occasion = data.get("occasion", "Праздник")
+            genre_key = data.get("genre", "qpop")
+            genre_style = get_genre_style(genre_key)
+            lyrics = data.get("lyrics", "")
+
+            # Submit job with simulated charge_id
+            test_charge_id = f"test_free_{callback.from_user.id}_{int(time.time())}"
+            await generation_queue.submit_job(
+                chat_id=callback.message.chat.id,
+                user_id=callback.from_user.id,
+                name=name,
+                occasion=occasion,
+                genre=genre_style,
+                lyrics=lyrics,
+                lang=lang,
+                charge_id=test_charge_id,
+            )
+
+            # Clear order state data, preserving user language
+            await state.clear()
+            await state.set_data({"lang": lang})
             return
 
-        # 2. Immediately transition to generating_audio and remove buttons
-        await state.set_state(OrderStates.generating_audio)
+        # -------------------------------------------------------------------
+        # Real Payment Mode: Telegram Stars (60 XTR) Invoice
+        # -------------------------------------------------------------------
         await callback.answer()
         try:
             await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
 
-        status_msg = await callback.message.answer(get_text("generating_audio", lang))
+        await state.set_state(OrderStates.waiting_payment)
 
-        chat_id = callback.message.chat.id
-        title = f"Song for {data['name']}"
+        # Send Telegram Stars (XTR) Invoice for 60 Stars
+        prices = [LabeledPrice(label=get_text("stars_invoice_label", lang), amount=60)]
+        payload = f"song_{callback.from_user.id}_{int(time.time())}"
 
-        try:
-            # 1. Send recording action
-            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.RECORD_VOICE)
+        await bot.send_invoice(
+            chat_id=callback.message.chat.id,
+            title=get_text("stars_invoice_title", lang),
+            description=get_text("stars_invoice_desc", lang),
+            payload=payload,
+            currency="XTR",
+            prices=prices,
+            provider_token="",  # Required empty string for Telegram Stars
+        )
+        return
 
-            # 2. Animate waiting status while submitting and generating with Suno
-            async with UIAnimator(message=status_msg, lang=lang, show_progress_bar=True) as animator:
-                task_id = await suno_service.create_song_task(
-                    lyrics=data["lyrics"],
-                    style=data["genre"],
-                    title=title,
-                )
-                audio_url = await suno_service.wait_for_completion(
-                    task_id=task_id,
-                    timeout=240,
-                    interval=2.0,
-                    on_progress=animator.update_progress,
-                )
-                await animator.update_progress(100)
 
-            # 3. Upload and send audio to Telegram user
-            await bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_VOICE)
-            audio_file = URLInputFile(
-                url=audio_url,
-                filename=f"Song_{data['name']}.mp3"
-            )
+# ---------------------------------------------------------------------------
+# Pre-Checkout Query: Healthcheck to Apiframe (GET /v2/models with 3s timeout)
+# ---------------------------------------------------------------------------
+@router.pre_checkout_query()
+async def process_pre_checkout_query(
+    pre_checkout_query: PreCheckoutQuery,
+    state: FSMContext,
+    suno_service: SunoService,
+) -> None:
+    """
+    Fast pre-checkout check:
+    Ensures Apiframe Suno API is reachable within 3 seconds.
+    If unavailable, rejects payment so no Stars are deducted.
+    """
+    data = await state.get_data()
+    lang = data.get("lang") or pre_checkout_query.from_user.language_code or DEFAULT_LANGUAGE
 
-            caption = get_text(
-                "song_ready_caption",
-                lang,
-                name=data["name"],
-                occasion=data["occasion"],
-                genre=data["genre"],
-            )
+    is_healthy = await suno_service.check_health(timeout=3.0)
+    if not is_healthy:
+        logger.warning(
+            "PreCheckoutQuery rejected for user %d: Apiframe Suno API is unhealthy/unreachable.",
+            pre_checkout_query.from_user.id,
+        )
+        await pre_checkout_query.answer(
+            ok=False,
+            error_message=get_text("pre_checkout_error", lang),
+        )
+        return
 
-            await bot.send_audio(
-                chat_id=chat_id,
-                audio=audio_file,
-                caption=caption,
-                title=title,
-                performer="Suno AI",
-            )
-            try:
-                await status_msg.delete()
-            except Exception:
-                pass
+    await pre_checkout_query.answer(ok=True)
 
-            # Clear FSM state and preserve user language for next order
-            await state.clear()
-            await state.set_data({"lang": lang})
-            await bot.send_message(
-                chat_id=chat_id,
-                text=get_text("order_another", lang),
-                reply_markup=get_start_keyboard(lang),
-            )
 
-        except InsufficientCreditsError as err:
-            logger.error("Suno credits exhausted (HTTP 402): %s", err)
-            error_message = get_text("credits_exhausted", lang)
-            await status_msg.edit_text(
-                text=error_message,
-                reply_markup=get_start_keyboard(lang),
-            )
-            await state.clear()
-            await state.set_data({"lang": lang})
+# ---------------------------------------------------------------------------
+# Successful Payment: Enqueue to 5-Worker Pool with Charge ID
+# ---------------------------------------------------------------------------
+@router.message(F.successful_payment)
+async def process_successful_payment(
+    message: Message,
+    state: FSMContext,
+    generation_queue: GenerationQueue,
+) -> None:
+    """
+    Payment confirmed!
+    Captures telegram_payment_charge_id and submits job to the 5-slot GenerationQueue.
+    """
+    payment = message.successful_payment
+    charge_id = payment.telegram_payment_charge_id
+    logger.info(
+        "Payment confirmed: %d %s from user %d. Charge ID: %s",
+        payment.total_amount,
+        payment.currency,
+        message.from_user.id,
+        charge_id,
+    )
 
-        except TimeoutError as err:
-            logger.error("Suno generation timed out: %s", err)
-            await status_msg.edit_text(
-                text=get_text("audio_timeout", lang),
-                reply_markup=get_start_keyboard(lang),
-            )
-            await state.clear()
-            await state.set_data({"lang": lang})
+    data = await state.get_data()
+    lang = data.get("lang", DEFAULT_LANGUAGE)
+    name = data.get("name", "Друг")
+    occasion = data.get("occasion", "Праздник")
+    genre_key = data.get("genre", "qpop")
+    genre_style = get_genre_style(genre_key)
+    lyrics = data.get("lyrics", "")
 
-        except SunoServiceError as err:
-            logger.error("Suno service error: %s", err)
-            await status_msg.edit_text(
-                text=get_text("audio_failed", lang, err=str(err)),
-                reply_markup=get_start_keyboard(lang),
-            )
-            await state.clear()
-            await state.set_data({"lang": lang})
+    # Prevent concurrent clicks during generation
+    await state.set_state(OrderStates.generating_audio)
 
-        except Exception as exc:
-            logger.exception("Unexpected error during song generation: %s", exc)
-            await status_msg.edit_text(
-                text=get_text("audio_failed", lang, err="Internal error"),
-                reply_markup=get_start_keyboard(lang),
-            )
-            await state.clear()
-            await state.set_data({"lang": lang})
+    # Enqueue to 5-slot concurrency queue with charge_id
+    await generation_queue.submit_job(
+        chat_id=message.chat.id,
+        user_id=message.from_user.id,
+        name=name,
+        occasion=occasion,
+        genre=genre_style,
+        lyrics=lyrics,
+        lang=lang,
+        charge_id=charge_id,
+    )
+
+    # Clear order state data, preserving user language
+    await state.clear()
+    await state.set_data({"lang": lang})
 
 
 # ---------------------------------------------------------------------------

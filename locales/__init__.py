@@ -12,6 +12,8 @@ from .texts import (
     ANIMATION_FRAMES,
     t,
     get_text,
+    get_genre_style,
+    get_genre_label,
 )
 
 __all__ = [
@@ -28,4 +30,6 @@ __all__ = [
     "ANIMATION_FRAMES",
     "t",
     "get_text",
+    "get_genre_style",
+    "get_genre_label",
 ]

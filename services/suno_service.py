@@ -88,6 +88,30 @@ class SunoService:
                 "Недостаточно кредитов в сервисе генерации музыки (Apiframe/Suno)."
             )
 
+    async def check_health(self, timeout: float = 3.0) -> bool:
+        """
+        Fast health check against Apiframe Suno gateway with a strict timeout (default 3.0s).
+        Called during Telegram Stars PreCheckoutQuery to ensure the studio is reachable
+        before user's balance is debited.
+        Returns True if gateway is healthy and accessible, False otherwise.
+        """
+        if self._use_mock:
+            return True
+
+        endpoint = f"{self._base_url}/v2/models"
+        session = await self._get_session()
+        try:
+            async with session.get(
+                endpoint,
+                headers=self._get_headers(),
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as response:
+                logger.debug("Apiframe healthcheck returned status %s", response.status)
+                return response.status < 500
+        except Exception as exc:
+            logger.warning("Apiframe healthcheck failed: %s", exc)
+            return False
+
     async def create_song_task(
         self,
         lyrics: str,
@@ -171,6 +195,57 @@ class SunoService:
         except Exception as exc:
             logger.exception("Unexpected error in SunoService.create_song_task: %s", exc)
             raise SunoServiceError(f"Не удалось запустить генерацию трека в Apiframe: {exc}") from exc
+
+    async def get_task_status(self, task_id: str) -> dict[str, Any]:
+        """
+        Check status of a single Apiframe / Suno task without blocking indefinitely.
+        Returns dict with keys: 'status', 'progress', 'audio_url', 'error'.
+        """
+        if self._use_mock:
+            return {
+                "status": "COMPLETED",
+                "progress": 100,
+                "audio_url": self._mock_audio_url,
+                "error": None,
+            }
+
+        endpoint = f"{self._base_url}/v2/jobs/{task_id}"
+        session = await self._get_session()
+
+        try:
+            async with session.get(endpoint, headers=self._get_headers()) as response:
+                response_text = await response.text()
+                self._check_credits_error(response.status, response_text)
+
+                if response.status != 200:
+                    return {
+                        "status": "PENDING",
+                        "progress": 10,
+                        "audio_url": None,
+                        "error": f"HTTP {response.status}",
+                    }
+
+                data = await response.json()
+                status = str(data.get("status") or "PENDING").upper()
+                raw_prog = data.get("progress")
+                audio_url = self._extract_audio_url(data) if status == "COMPLETED" else None
+                error_msg = (
+                    data.get("error")
+                    or data.get("message")
+                    or data.get("failed_reason")
+                )
+
+                return {
+                    "status": status,
+                    "progress": int(raw_prog) if raw_prog is not None else None,
+                    "audio_url": audio_url,
+                    "error": error_msg,
+                }
+        except InsufficientCreditsError as exc:
+            return {"status": "FAILED", "progress": 0, "audio_url": None, "error": str(exc)}
+        except Exception as exc:
+            logger.warning("Error fetching task status %s: %s", task_id, exc)
+            return {"status": "PENDING", "progress": 15, "audio_url": None, "error": str(exc)}
 
     async def wait_for_completion(
         self,
