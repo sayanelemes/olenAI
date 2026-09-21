@@ -1,0 +1,18 @@
+[Unit]
+Description=Telegram AI Song Generator Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/song_bot
+ExecStart=/opt/song_bot/.venv/bin/python bot.py
+Restart=always
+RestartSec=5s
+EnvironmentFile=/opt/song_bot/.env
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+services:
+  bot:
+    build: .
+    container_name: song_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./bot_orders.db:/app/bot_orders.db
+      - ./bot_orders.db-wal:/app/bot_orders.db-wal
+      - ./bot_orders.db-shm:/app/bot_orders.db-shm
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
