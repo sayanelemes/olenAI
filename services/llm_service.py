@@ -198,140 +198,174 @@ class GeminiService:
             language=chosen_lang,
         )
 
-        model_name = f"models/{self._model}"
+        models_to_try = [
+            self._model,
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+        ]
+        unique_models = list(dict.fromkeys([m.replace("models/", "") for m in models_to_try if m]))
         session = await self._get_session()
+        last_error_msg = ""
 
         # -------------------------------------------------------------------
-        # Strategy 1: Google Interactions API (Recommended)
+        # Strategy 1: Google Interactions API with Automatic Model Fallback
         # -------------------------------------------------------------------
         interactions_endpoint = (
             f"https://generativelanguage.googleapis.com/v1beta/interactions?key={self._api_key}"
         )
-        interactions_payload: dict[str, Any] = {
-            "model": model_name,
-            "input": user_prompt,
-            "system_instruction": system_prompt,
-            "generation_config": {
-                # Generous token limit (1500+ tokens) to guarantee lyrics are never cut off mid-verse
-                "max_output_tokens": 1500,
-            },
-        }
 
-        logger.info(
-            "Requesting lyrics via Interactions API (model=%s, lang=%s, name='%s')...",
-            model_name,
-            chosen_lang,
-            name,
-        )
+        for candidate_model in unique_models:
+            full_model_name = f"models/{candidate_model}"
+            interactions_payload: dict[str, Any] = {
+                "model": full_model_name,
+                "input": user_prompt,
+                "system_instruction": system_prompt,
+                "generation_config": {
+                    # 4096 tokens guarantees full song lyrics without cutting off
+                    "max_output_tokens": 4096,
+                    # 'low' thinking level prevents token exhaustion while keeping verses smart
+                    "thinking_level": "low",
+                },
+            }
 
-        try:
-            async with session.post(
-                interactions_endpoint,
-                headers={"Content-Type": "application/json"},
-                json=interactions_payload,
-            ) as response:
-                response_data = await response.json()
-                if response.status == 200:
-                    text = self._extract_text(response_data)
-                    if text:
-                        logger.info("Successfully generated lyrics (%d characters, lang=%s)", len(text), chosen_lang)
-                        return self._sanitize_lyrics(text)
-                else:
-                    logger.warning(
-                        "Interactions API returned status %s: %s. Trying generateContent...",
-                        response.status,
-                        response_data,
-                    )
-        except Exception as exc:
-            logger.warning("Interactions API request error: %s. Trying generateContent fallback...", exc)
+            logger.info(
+                "Requesting lyrics via Interactions API (model=%s, lang=%s, name='%s')...",
+                full_model_name,
+                chosen_lang,
+                name,
+            )
+
+            try:
+                async with session.post(
+                    interactions_endpoint,
+                    headers={"Content-Type": "application/json"},
+                    json=interactions_payload,
+                ) as response:
+                    response_data = await response.json()
+                    if response.status == 200:
+                        text = self._extract_text(response_data)
+                        if text and len(text) >= 150:
+                            logger.info(
+                                "Successfully generated lyrics with %s (%d chars, lang=%s)",
+                                full_model_name,
+                                len(text),
+                                chosen_lang,
+                            )
+                            return self._sanitize_lyrics(text)
+                    else:
+                        err_detail = response_data.get("error", {})
+                        last_error_msg = err_detail.get("message") or str(response_data)
+                        logger.warning(
+                            "Interactions API returned HTTP %s for %s: %s. Trying next candidate...",
+                            response.status,
+                            full_model_name,
+                            last_error_msg[:120],
+                        )
+            except Exception as exc:
+                last_error_msg = str(exc)
+                logger.warning("Interactions API request error for %s: %s. Trying next candidate...", full_model_name, exc)
 
         # -------------------------------------------------------------------
         # Strategy 2: generateContent fallback
         # -------------------------------------------------------------------
-        generate_endpoint = (
-            f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent"
-            f"?key={self._api_key}"
-        )
-        generate_payload: dict[str, Any] = {
-            "system_instruction": {
-                "parts": [{"text": system_prompt}],
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": user_prompt}],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.75,
-                "maxOutputTokens": 1500,
-            },
-        }
+        for candidate_model in unique_models:
+            full_model_name = f"models/{candidate_model}"
+            generate_endpoint = (
+                f"https://generativelanguage.googleapis.com/v1beta/{full_model_name}:generateContent"
+                f"?key={self._api_key}"
+            )
+            generate_payload: dict[str, Any] = {
+                "system_instruction": {
+                    "parts": [{"text": system_prompt}],
+                },
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": user_prompt}],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.75,
+                    "maxOutputTokens": 4096,
+                },
+            }
 
-        logger.info("Calling generateContent fallback (model=%s, lang=%s)...", model_name, chosen_lang)
-        try:
-            async with session.post(
-                generate_endpoint,
-                headers={"Content-Type": "application/json"},
-                json=generate_payload,
-            ) as response:
-                response_data = await response.json()
+            logger.info("Calling generateContent fallback (model=%s, lang=%s)...", full_model_name, chosen_lang)
+            try:
+                async with session.post(
+                    generate_endpoint,
+                    headers={"Content-Type": "application/json"},
+                    json=generate_payload,
+                ) as response:
+                    response_data = await response.json()
 
-                if response.status != 200:
-                    error_info = response_data.get("error", {})
-                    error_msg = error_info.get("message") or str(response_data)
-                    error_status = error_info.get("status", f"HTTP {response.status}")
-                    logger.error("Gemini API error (%s): %s", error_status, error_msg)
-                    raise GeminiServiceError(f"Ошибка Gemini API ({error_status}): {error_msg}")
+                    if response.status == 200:
+                        text = self._extract_text(response_data)
+                        if text and len(text) >= 150:
+                            logger.info("Successfully generated lyrics via generateContent fallback with %s (%d chars)", full_model_name, len(text))
+                            return self._sanitize_lyrics(text)
+                    else:
+                        err_detail = response_data.get("error", {})
+                        last_error_msg = err_detail.get("message") or str(response_data)
+                        logger.warning("generateContent returned HTTP %s for %s: %s", response.status, full_model_name, last_error_msg[:120])
+            except Exception as exc:
+                last_error_msg = str(exc)
+                logger.warning("generateContent error for %s: %s", full_model_name, exc)
 
-                text = self._extract_text(response_data)
-                if not text:
-                    logger.error("Gemini returned empty response: %s", response_data)
-                    raise GeminiServiceError("Gemini не вернул текст песни.")
-
-                logger.info("Successfully generated lyrics via fallback (%d characters)", len(text))
-                return self._sanitize_lyrics(text)
-
-        except asyncio.TimeoutError as exc:
-            logger.error("Timeout waiting for Gemini response")
-            raise GeminiServiceError("Превышено время ожидания ответа от Google Gemini.") from exc
-        except aiohttp.ClientError as exc:
-            logger.error("Network error connecting to Gemini: %s", exc)
-            raise GeminiServiceError(f"Сетевая ошибка при обращении к Google Gemini: {exc}") from exc
-        except GeminiServiceError:
-            raise
-        except Exception as exc:
-            logger.exception("Unexpected error in GeminiService: %s", exc)
-            raise GeminiServiceError(f"Непредвиденная ошибка при вызове Gemini: {exc}") from exc
+        raise GeminiServiceError(f"Не удалось сгенерировать текст песни через Gemini: {last_error_msg}")
 
     def _extract_text(self, data: dict[str, Any]) -> str | None:
         """Extract text from Interactions API or generateContent responses."""
+        # 1. Check steps in Interactions API
+        texts: list[str] = []
         for step in data.get("steps", []):
             for item in step.get("content", []):
-                if isinstance(item, dict) and item.get("type") == "text" and "text" in item:
-                    return str(item["text"])
-                elif isinstance(item, str):
-                    return item
+                if isinstance(item, dict):
+                    # Only accept 'text' type items, strictly ignore thought and tool outputs
+                    if item.get("type") == "text" and "text" in item:
+                        t = str(item["text"]).strip()
+                        if t:
+                            texts.append(t)
+                elif isinstance(item, str) and item.strip():
+                    texts.append(item.strip())
 
+        if texts:
+            return "\n\n".join(texts)
+
+        # 2. Check candidates in generateContent
         candidates = data.get("candidates", [])
         if candidates:
             parts = candidates[0].get("content", {}).get("parts", [])
-            if parts and "text" in parts[0]:
-                return str(parts[0]["text"])
+            cand_texts = [
+                str(p["text"]).strip()
+                for p in parts
+                if isinstance(p, dict) and "text" in p and not p.get("thought")
+            ]
+            if cand_texts:
+                return "\n\n".join(cand_texts)
 
         if "output_text" in data and data["output_text"]:
-            return str(data["output_text"])
+            return str(data["output_text"]).strip()
 
         return None
 
     @staticmethod
     def _sanitize_lyrics(lyrics: str) -> str:
-        """Clean markdown codeblock wrappers."""
+        """Clean markdown codeblock wrappers and trim accidental pre-verse meta commentary."""
         cleaned = lyrics.strip()
         if cleaned.startswith("```"):
             lines = cleaned.splitlines()
             if len(lines) >= 2 and lines[-1].strip() == "```":
                 cleaned = "\n".join(lines[1:-1]).strip()
+
+        # If there is meta-chatter before [Verse 1] / [Intro], start from the actual song tag
+        for tag in ("[Verse 1]", "[Verse]", "[Intro]"):
+            pos = cleaned.find(tag)
+            if pos != -1 and pos < 200:
+                cleaned = cleaned[pos:].strip()
+                break
+
         return cleaned
 
 
