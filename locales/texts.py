@@ -253,6 +253,11 @@ TEXTS: dict[str, dict[str, str]] = {
             "If you like the lyrics, click <b>'✨ Generate Song'</b>!"
         ),
     },
+    "already_generating": {
+        LANG_RU: "⏳ Песня уже создается! Пожалуйста, дождитесь окончания генерации.",
+        LANG_KK: "⏳ Ән қазір жасалып жатыр! Өтініш, дайын болғанша күте тұрыңыз.",
+        LANG_EN: "⏳ The song is already generating! Please wait for it to complete.",
+    },
     "order_canceled": {
         LANG_RU: "❌ <b>Создание песни отменено.</b>\nВы можете начать заново в любой момент через /start.",
         LANG_KK: "❌ <b>Ән жасау тоқтатылды.</b>\nКез келген уақытта /start арқылы қайта бастай аласыз.",

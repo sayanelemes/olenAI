@@ -10,3 +10,4 @@ class OrderStates(StatesGroup):
     details = State()           # Факты, черты характера, воспоминания
     genre = State()             # Музыкальный жанр / стиль
     preview_approval = State()  # Превью текста и подтверждение генерации аудио
+    generating_audio = State()  # Генерация трека в Suno (блокировка повторных нажатий)

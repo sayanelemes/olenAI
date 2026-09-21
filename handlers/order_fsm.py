@@ -244,6 +244,11 @@ async def process_preview_action(
 
     if action == "cancel":
         await callback.answer()
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await state.clear()
         await state.set_data({"lang": lang})
         await callback.message.answer(
             text=get_text("order_canceled", lang),
@@ -253,6 +258,10 @@ async def process_preview_action(
 
     if action == "rewrite":
         await callback.answer()
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         status_msg = await callback.message.answer(get_text("rewriting_lyrics", lang))
 
         try:
@@ -290,7 +299,20 @@ async def process_preview_action(
         return
 
     if action == "approve":
+        # 1. Guard against duplicate clicks
+        current_state = await state.get_state()
+        if current_state == OrderStates.generating_audio.state:
+            await callback.answer(get_text("already_generating", lang), show_alert=True)
+            return
+
+        # 2. Immediately transition to generating_audio and remove buttons
+        await state.set_state(OrderStates.generating_audio)
         await callback.answer()
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
         status_msg = await callback.message.answer(get_text("generating_audio", lang))
 
         chat_id = callback.message.chat.id
@@ -342,7 +364,8 @@ async def process_preview_action(
             except Exception:
                 pass
 
-            # Preserve user language and clear order data
+            # Clear FSM state and preserve user language for next order
+            await state.clear()
             await state.set_data({"lang": lang})
             await bot.send_message(
                 chat_id=chat_id,
@@ -357,6 +380,7 @@ async def process_preview_action(
                 text=error_message,
                 reply_markup=get_start_keyboard(lang),
             )
+            await state.clear()
             await state.set_data({"lang": lang})
 
         except TimeoutError as err:
@@ -365,6 +389,7 @@ async def process_preview_action(
                 text=get_text("audio_timeout", lang),
                 reply_markup=get_start_keyboard(lang),
             )
+            await state.clear()
             await state.set_data({"lang": lang})
 
         except SunoServiceError as err:
@@ -373,6 +398,7 @@ async def process_preview_action(
                 text=get_text("audio_failed", lang, err=str(err)),
                 reply_markup=get_start_keyboard(lang),
             )
+            await state.clear()
             await state.set_data({"lang": lang})
 
         except Exception as exc:
@@ -381,4 +407,15 @@ async def process_preview_action(
                 text=get_text("audio_failed", lang, err="Internal error"),
                 reply_markup=get_start_keyboard(lang),
             )
+            await state.clear()
             await state.set_data({"lang": lang})
+
+
+# ---------------------------------------------------------------------------
+# Guard: reject any button clicks while audio is generating
+# ---------------------------------------------------------------------------
+@router.callback_query(OrderStates.generating_audio)
+async def process_action_while_generating(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    lang = data.get("lang", DEFAULT_LANGUAGE)
+    await callback.answer(get_text("already_generating", lang), show_alert=True)
