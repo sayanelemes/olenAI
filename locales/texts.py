@@ -77,55 +77,36 @@ TEXTS: dict[str, dict[str, str]] = {
     },
 
     # -----------------------------------------------------------------------
-    # 2. Вопросы для шагов FSM (имя, повод, детали, жанр)
+    # 2. Вопросы для шагов FSM (повод, имя, детали, жанр, голос)
     # -----------------------------------------------------------------------
-    "step_name": {
-        LANG_RU: (
-            "👤 <b>Шаг 2 из 4: Как зовут адресата?</b>\n\n"
-            "Напишите имя того, для кого мы создаем песню (например: «Азамат», «Алина», «Алексей»):"
-        ),
-        LANG_KK: (
-            "👤 <b>2-қадам (4-тен): Ән кімге арналады?</b>\n\n"
-            "Құттықтау иесінің есімін жазыңыз (мысалы: «Азамат», «Алина», «Айдар»):"
-        ),
-        LANG_EN: (
-            "👤 <b>Step 2 of 4: Who is this song for?</b>\n\n"
-            "Type the recipient's name (e.g., 'Azamat', 'Alina', 'Alex'):"
-        ),
-    },
-    "name_error": {
-        LANG_RU: "⚠️ Имя должно быть от 2 до 60 символов. Попробуйте еще раз:",
-        LANG_KK: "⚠️ Есім 2-ден 60 таңбаға дейін болуы керек. Қайта жазып көріңіз:",
-        LANG_EN: "⚠️ Name must be between 2 and 60 characters. Please try again:",
-    },
     "step_occasion_first": {
         LANG_RU: (
-            "🎉 <b>Шаг 1 из 4: Какой повод для песни?</b>\n\n"
+            "🎉 <b>Шаг 1 из 5: Какой повод для песни?</b>\n\n"
             "Выберите вариант из списка ниже или отправьте свой текст сообщением:"
         ),
         LANG_KK: (
-            "🎉 <b>1-қадам (4-тен): Қандай мереке немесе себеп?</b>\n\n"
+            "🎉 <b>1-қадам (5-тен): Қандай мереке немесе себеп?</b>\n\n"
             "Төмендегі нұсқалардың бірін таңдаңыз немесе өз нұсқаңызды жазыңыз:"
         ),
         LANG_EN: (
-            "🎉 <b>Step 1 of 4: What is the occasion?</b>\n\n"
+            "🎉 <b>Step 1 of 5: What is the occasion?</b>\n\n"
             "Choose an option from the list below or send your own text:"
         ),
     },
     "step_occasion": {
         LANG_RU: (
             "🎉 Принято: <b>{name}</b>!\n\n"
-            "<b>Шаг 2 из 4: Какой повод для песни?</b>\n"
+            "<b>Шаг 2 из 5: Какой повод для песни?</b>\n"
             "Выберите вариант из списка ниже или отправьте свой текст сообщением:"
         ),
         LANG_KK: (
             "🎉 Қабылданды: <b>{name}</b>!\n\n"
-            "<b>2-қадам (4-тен): Қандай мереке немесе себеп?</b>\n"
+            "<b>2-қадам (5-тен): Қандай мереке немесе себеп?</b>\n"
             "Төмендегі нұсқалардың бірін таңдаңыз немесе өз нұсқаңызды жазыңыз:"
         ),
         LANG_EN: (
             "🎉 Got it: <b>{name}</b>!\n\n"
-            "<b>Step 2 of 4: What is the occasion?</b>\n"
+            "<b>Step 2 of 5: What is the occasion?</b>\n"
             "Choose an option from the list below or send your own text:"
         ),
     },
@@ -134,25 +115,44 @@ TEXTS: dict[str, dict[str, str]] = {
         LANG_KK: "⚠️ Мереке атауы 3-тен 100 таңбаға дейін болуы керек. Қайта жазыңыз:",
         LANG_EN: "⚠️ Occasion must be between 3 and 100 characters. Please try again:",
     },
+    "step_name": {
+        LANG_RU: (
+            "👤 <b>Шаг 2 из 5: Как зовут адресата?</b>\n\n"
+            "Напишите имя того, для кого мы создаем песню (например: «Азамат», «Алина», «Алексей»):"
+        ),
+        LANG_KK: (
+            "👤 <b>2-қадам (5-тен): Ән кімге арналады?</b>\n\n"
+            "Құттықтау иесінің есімін жазыңыз (мысалы: «Азамат», «Алина», «Айдар»):"
+        ),
+        LANG_EN: (
+            "👤 <b>Step 2 of 5: Who is this song for?</b>\n\n"
+            "Type the recipient's name (e.g., 'Azamat', 'Alina', 'Alex'):"
+        ),
+    },
+    "name_error": {
+        LANG_RU: "⚠️ Имя должно быть от 2 до 60 символов. Попробуйте еще раз:",
+        LANG_KK: "⚠️ Есім 2-ден 60 таңбаға дейін болуы керек. Қайта жазып көріңіз:",
+        LANG_EN: "⚠️ Name must be between 2 and 60 characters. Please try again:",
+    },
     "step_details": {
         LANG_RU: (
             "👤 Адресат: <b>{name}</b>\n"
             "🎈 Повод: <b>{occasion}</b>\n\n"
-            "<b>Шаг 3 из 4: Факты, черты характера и пожелания</b>\n\n"
+            "<b>Шаг 3 из 5: Факты, черты характера и пожелания</b>\n\n"
             "Расскажите подробнее об адресате (хобби, любимые фразы, забавные привычки или пожелания):\n"
             "<i>Например: Любит путешествия, программирует по ночам, пьет зеленый чай. Желаем ярких побед!</i>"
         ),
         LANG_KK: (
             "👤 Құттықтау иесі: <b>{name}</b>\n"
             "🎈 Себеп: <b>{occasion}</b>\n\n"
-            "<b>3-қадам (4-тен): Қызықты деректер, мінезі мен тілектер</b>\n\n"
+            "<b>3-қадам (5-тен): Қызықты деректер, мінезі мен тілектер</b>\n\n"
             "Ол туралы толығырақ айтып беріңіз (хоббиі, жақсы көретін ісі, қызықты сәттері, арнайы тілектер):\n"
             "<i>Мысалы: Саяхаттағанды жақсы көреді, таңертең кофе ішеді, көлікті жылдам жүргізеді. Зор денсаулық пен бақыт тілейміз!</i>"
         ),
         LANG_EN: (
             "👤 Recipient: <b>{name}</b>\n"
             "🎈 Occasion: <b>{occasion}</b>\n\n"
-            "<b>Step 3 of 4: Facts, personal traits, and wishes</b>\n\n"
+            "<b>Step 3 of 5: Facts, personal traits, and wishes</b>\n\n"
             "Tell us more about the person (hobbies, funny quirks, favorite memories, or specific wishes):\n"
             "<i>Example: Loves road trips, drinks green tea every morning, always late but the life of the party. Wish them endless joy and success!</i>"
         ),
@@ -165,18 +165,35 @@ TEXTS: dict[str, dict[str, str]] = {
     "step_genre": {
         LANG_RU: (
             "📝 Факты сохранены!\n\n"
-            "<b>Шаг 4 из 4: В каком жанре и стиле написать песню?</b>\n"
+            "<b>Шаг 4 из 5: В каком жанре и стиле написать песню?</b>\n"
             "Выберите желаемый стиль трека из списка ниже:"
         ),
         LANG_KK: (
             "📝 Мәліметтер сақталды!\n\n"
-            "<b>4-қадам (4-тен): Ән қандай жанрда және стильде болсын?</b>\n"
+            "<b>4-қадам (5-тен): Ән қандай жанрда және стильде болсын?</b>\n"
             "Қалаған музыкалық стильді төмендегі тізімнен таңдаңыз:"
         ),
         LANG_EN: (
             "📝 Details saved!\n\n"
-            "<b>Step 4 of 4: Which genre and musical style?</b>\n"
+            "<b>Step 4 of 5: Which genre and musical style?</b>\n"
             "Select your preferred music style from the list below:"
+        ),
+    },
+    "step_vocal": {
+        LANG_RU: (
+            "🎸 Стиль выбран: <b>{genre}</b>\n\n"
+            "<b>🎤 Шаг 5 из 5: Выберите голос для исполнения песни</b>\n"
+            "Кто должен исполнять трек? Выберите мужской или женский вокал:"
+        ),
+        LANG_KK: (
+            "🎸 Стиль таңдалды: <b>{genre}</b>\n\n"
+            "<b>🎤 5-қадам (5-тен): Әнді орындайтын дауысты таңдаңыз</b>\n"
+            "Әнді кім орындасын? Ер немесе әйел адам дауысын таңдаңыз:"
+        ),
+        LANG_EN: (
+            "🎸 Style selected: <b>{genre}</b>\n\n"
+            "<b>🎤 Step 5 of 5: Choose the vocal voice</b>\n"
+            "Who should perform the track? Choose male or female vocals:"
         ),
     },
 
@@ -212,6 +229,21 @@ TEXTS: dict[str, dict[str, str]] = {
         LANG_RU: "❌ Отмена",
         LANG_KK: "❌ Бас тарту",
         LANG_EN: "❌ Cancel",
+    },
+    "btn_vocal_male": {
+        LANG_RU: "👨 Мужской вокал",
+        LANG_KK: "👨 Ер адам дауысы",
+        LANG_EN: "👨 Male vocal",
+    },
+    "btn_vocal_female": {
+        LANG_RU: "👩 Женский вокал",
+        LANG_KK: "👩 Әйел адам дауысы",
+        LANG_EN: "👩 Female vocal",
+    },
+    "btn_vocal_duet": {
+        LANG_RU: "🧑‍🤝‍🧑 Дуэт (Он + Она)",
+        LANG_KK: "🧑‍🤝‍🧑 Дуэт (Ер + Әйел)",
+        LANG_EN: "🧑‍🤝‍🧑 Duet (Male + Female)",
     },
 
     # -----------------------------------------------------------------------
@@ -300,6 +332,7 @@ TEXTS: dict[str, dict[str, str]] = {
         LANG_RU: (
             "🎵 <b>Готовый текст для «{name}»</b>\n"
             "🎸 <b>Стиль:</b> {genre}\n"
+            "🎤 <b>Голос:</b> {vocal}\n"
             "🎉 <b>Повод:</b> {occasion}\n\n"
             "<blockquote>{lyrics}</blockquote>\n\n"
             "⚠️ <i>Внимание: трек создается искусственным интеллектом строго по вашей анкете. Претензии по тембру и интонациям нейросети не принимаются.</i>"
@@ -307,6 +340,7 @@ TEXTS: dict[str, dict[str, str]] = {
         LANG_KK: (
             "🎵 <b>«{name}» үшін дайын ән мәтіні</b>\n"
             "🎸 <b>Стилі:</b> {genre}\n"
+            "🎤 <b>Дауыс:</b> {vocal}\n"
             "🎉 <b>Мереке:</b> {occasion}\n\n"
             "<blockquote>{lyrics}</blockquote>\n\n"
             "⚠️ <i>Назар аударыңыз: ән жасанды интеллект арқылы жасалады. Мәтін мен жанр сауалнамаңызға сай келеді. Нейрожелінің дауыс тембрі мен интонациясына шағымдар қабылданбайды.</i>"
@@ -314,6 +348,7 @@ TEXTS: dict[str, dict[str, str]] = {
         LANG_EN: (
             "🎵 <b>Generated Lyrics for '{name}'</b>\n"
             "🎸 <b>Style:</b> {genre}\n"
+            "🎤 <b>Voice:</b> {vocal}\n"
             "🎉 <b>Occasion:</b> {occasion}\n\n"
             "<blockquote>{lyrics}</blockquote>\n\n"
             "⚠️ <i>Notice: the track is generated by artificial intelligence strictly based on your questionnaire. Claims regarding vocal timbre or intonation are not accepted.</i>"
@@ -412,21 +447,24 @@ TEXTS: dict[str, dict[str, str]] = {
             "🎉 <b>Ваша песня готова!</b>\n\n"
             "👤 <b>Кому:</b> {name}\n"
             "🎈 <b>Повод:</b> {occasion}\n"
-            "🎸 <b>Стиль:</b> {genre}\n\n"
+            "🎸 <b>Стиль:</b> {genre}\n"
+            "🎤 <b>Голос:</b> {vocal}\n\n"
             "<i>Сгенерировано с помощью Suno AI и Telegram Bot</i>"
         ),
         LANG_KK: (
             "🎉 <b>Сіздің әніңіз дайын!</b>\n\n"
             "👤 <b>Кімге:</b> {name}\n"
             "🎈 <b>Мереке:</b> {occasion}\n"
-            "🎸 <b>Стилі:</b> {genre}\n\n"
+            "🎸 <b>Стилі:</b> {genre}\n"
+            "🎤 <b>Дауыс:</b> {vocal}\n\n"
             "<i>Suno AI және Telegram Bot арқылы жасалды</i>"
         ),
         LANG_EN: (
             "🎉 <b>Your song is ready!</b>\n\n"
             "👤 <b>For:</b> {name}\n"
             "🎈 <b>Occasion:</b> {occasion}\n"
-            "🎸 <b>Style:</b> {genre}\n\n"
+            "🎸 <b>Style:</b> {genre}\n"
+            "🎤 <b>Voice:</b> {vocal}\n\n"
             "<i>Generated with Suno AI & Telegram Bot</i>"
         ),
     },
@@ -560,6 +598,48 @@ def get_genre_label(genre_key: str, lang: str = DEFAULT_LANGUAGE) -> str:
         if item.get("id") == genre_key or item.get("style") == genre_key:
             return item["label"]
     return genre_key
+
+
+# ---------------------------------------------------------------------------
+# Выбор голоса (Vocals) - Мужской, Женский, Дуэт
+# ---------------------------------------------------------------------------
+VOCALS_LIST: dict[str, list[dict[str, str]]] = {
+    LANG_RU: [
+        {"id": "male", "label": "👨 Мужской вокал", "style": "male vocals"},
+        {"id": "female", "label": "👩 Женский вокал", "style": "female vocals"},
+        {"id": "duet", "label": "🧑‍🤝‍🧑 Дуэт (Он + Она)", "style": "duet, male and female vocals"},
+    ],
+    LANG_KK: [
+        {"id": "male", "label": "👨 Ер адам дауысы", "style": "male vocals"},
+        {"id": "female", "label": "👩 Әйел адам дауысы", "style": "female vocals"},
+        {"id": "duet", "label": "🧑‍🤝‍🧑 Дуэт (Ер + Әйел)", "style": "duet, male and female vocals"},
+    ],
+    LANG_EN: [
+        {"id": "male", "label": "👨 Male vocal", "style": "male vocals"},
+        {"id": "female", "label": "👩 Female vocal", "style": "female vocals"},
+        {"id": "duet", "label": "🧑‍🤝‍🧑 Duet (Male + Female)", "style": "duet, male and female vocals"},
+    ],
+}
+
+VOCAL_STYLES: dict[str, str] = {
+    "male": "male vocals",
+    "female": "female vocals",
+    "duet": "duet, male and female vocals",
+}
+
+
+def get_vocal_style(vocal_key: str) -> str:
+    """Return Apiframe / Suno prompt style for a vocal key."""
+    return VOCAL_STYLES.get(vocal_key, "male vocals")
+
+
+def get_vocal_label(vocal_key: str, lang: str = DEFAULT_LANGUAGE) -> str:
+    """Return localized vocal label for UI display."""
+    vocals = VOCALS_LIST.get(lang) or VOCALS_LIST.get(DEFAULT_LANGUAGE, [])
+    for item in vocals:
+        if item.get("id") == vocal_key or item.get("style") == vocal_key:
+            return item["label"]
+    return "Мужской вокал" if lang == LANG_RU else "Ер адам дауысы" if lang == LANG_KK else "Male vocal"
 
 
 # ---------------------------------------------------------------------------

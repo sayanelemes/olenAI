@@ -14,6 +14,10 @@ from .texts import (
     get_text,
     get_genre_style,
     get_genre_label,
+    VOCALS_LIST,
+    VOCAL_STYLES,
+    get_vocal_style,
+    get_vocal_label,
 )
 
 __all__ = [
@@ -27,6 +31,10 @@ __all__ = [
     "OCCASIONS_MAP",
     "GENRES_LIST",
     "GENRES_MAP",
+    "VOCALS_LIST",
+    "VOCAL_STYLES",
+    "get_vocal_style",
+    "get_vocal_label",
     "ANIMATION_FRAMES",
     "t",
     "get_text",

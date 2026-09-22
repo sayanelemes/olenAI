@@ -49,8 +49,11 @@ from locales import (
     LANG_KK,
     LANG_RU,
     OCCASIONS_LIST,
+    VOCALS_LIST,
     get_genre_label,
     get_genre_style,
+    get_vocal_label,
+    get_vocal_style,
     get_text,
 )
 
@@ -122,6 +125,7 @@ class OrderStates(StatesGroup):
     name = State()
     details = State()
     genre = State()
+    vocal = State()
     preview_approval = State()
     waiting_payment = State()
     generating_audio = State()
@@ -156,7 +160,7 @@ def get_occasions_keyboard(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup
 
 
 def get_genres_keyboard(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
-    """10 localized music genres formatted in a neat 2-column grid (Step 3)."""
+    """10 localized music genres formatted in a neat 2-column grid (Step 4)."""
     genres = GENRES_LIST.get(lang) or GENRES_LIST.get(DEFAULT_LANGUAGE, [])
     buttons = []
     for i in range(0, len(genres), 2):
@@ -166,6 +170,25 @@ def get_genres_keyboard(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=genres[i + 1]["label"], callback_data=f"gnr:{genres[i + 1]['id']}")
             )
         buttons.append(row)
+    buttons.append([InlineKeyboardButton(text=get_text("btn_cancel", lang), callback_data="prv:restart")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_vocals_keyboard(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
+    """Localized keyboard for selecting vocal voice: Male, Female, Duet (Step 5)."""
+    vocals = VOCALS_LIST.get(lang) or VOCALS_LIST.get(DEFAULT_LANGUAGE, [])
+    buttons = []
+    # Row 1: Male and Female
+    if len(vocals) >= 2:
+        buttons.append([
+            InlineKeyboardButton(text=vocals[0]["label"], callback_data=f"voc:{vocals[0]['id']}"),
+            InlineKeyboardButton(text=vocals[1]["label"], callback_data=f"voc:{vocals[1]['id']}"),
+        ])
+    # Row 2: Duet
+    if len(vocals) > 2:
+        buttons.append([
+            InlineKeyboardButton(text=vocals[2]["label"], callback_data=f"voc:{vocals[2]['id']}"),
+        ])
     buttons.append([InlineKeyboardButton(text=get_text("btn_cancel", lang), callback_data="prv:restart")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -208,7 +231,8 @@ class GenerationJob:
     name: str
     occasion: str
     genre_name: str
-    lang: str
+    vocal_name: str = "Мужской вокал"
+    lang: str = "ru"
     enqueued_at: float = 0.0
 
 
@@ -236,10 +260,12 @@ class GeminiContentService:
         details: str,
         genre_title: str,
         genre_tags: str,
+        vocal_title: str = "Мужской вокал",
+        vocal_style: str = "male vocals",
         language: str = "ru",
     ) -> dict[str, Any]:
         """
-        Step 4: Unified Gemini API call in JSON mode: response_mime_type='application/json'.
+        Step 5: Unified Gemini API call in JSON mode: response_mime_type='application/json'.
         Includes automatic retries and multi-model failover for 503 UNAVAILABLE or spikes.
         """
         if language == "kk":
@@ -261,8 +287,10 @@ class GeminiContentService:
             )
             default_title = f"Песня для {name}"
 
+        combined_tags = f"{genre_tags}, {vocal_style}"
+
         if not self.client:
-            return self._build_template_lyrics(name, occasion, details, genre_tags, default_title, language)
+            return self._build_template_lyrics(name, occasion, details, genre_tags, vocal_style, default_title, language)
 
         prompt = f"""
 Ты — профессиональный музыкальный продюсер, поэт-песенник и модератор контента сервиса персональных песен.
@@ -281,6 +309,7 @@ class GeminiContentService:
 
 2. СОЧИНЕНИЕ ТЕКСТА ПЕСНИ ДЛЯ SUNO AI:
    - Напиши ритмичный, эмоциональный текст песни под стиль: {genre_title} ({genre_tags}).
+   - Исполнитель / Тембр голоса: {vocal_title} ({vocal_style}). Учитывай это в тональности, согласовании рода и структуре вокальных партий.
    - Строгая структура:
      [Verse 1]
      (раскрытие имени адресата и праздничной атмосферы)
@@ -298,6 +327,7 @@ class GeminiContentService:
 - Повод: {occasion}
 - Личные факты и детали: {details}
 - Музыкальный стиль: {genre_title}
+- Голос исполнителя: {vocal_title}
 
 ФОРМАТ ВЫВОДА:
 СТРОГО валидный JSON следующей схемы:
@@ -305,7 +335,7 @@ class GeminiContentService:
   "is_safe": true,
   "reason": null,
   "lyrics": "[Verse 1]...\\n\\n[Chorus]...\\n\\n[Verse 2]...\\n\\n[Chorus]...\\n\\n[Outro]...",
-  "tags": "{genre_tags}",
+  "tags": "{combined_tags}",
   "title": "{default_title}"
 }}
 """
@@ -330,11 +360,16 @@ class GeminiContentService:
                     )
                     raw = response.text or "{}"
                     data = json.loads(raw)
+
+                    tags = data.get("tags") or combined_tags
+                    if vocal_style not in tags:
+                        tags = f"{tags}, {vocal_style}"
+
                     return {
                         "is_safe": bool(data.get("is_safe", True)),
                         "reason": data.get("reason"),
                         "lyrics": data.get("lyrics"),
-                        "tags": data.get("tags") or genre_tags,
+                        "tags": tags,
                         "title": data.get("title") or default_title,
                     }
                 except Exception as exc:
@@ -347,7 +382,7 @@ class GeminiContentService:
                     break  # Try next candidate model
 
         logger.error("All Gemini candidate models failed (%s). Using template fallback.", last_exc)
-        return self._build_template_lyrics(name, occasion, details, genre_tags, default_title, language)
+        return self._build_template_lyrics(name, occasion, details, genre_tags, vocal_style, default_title, language)
 
     def _build_template_lyrics(
         self,
@@ -355,6 +390,7 @@ class GeminiContentService:
         occasion: str,
         details: str,
         genre_tags: str,
+        vocal_style: str,
         title: str,
         language: str,
     ) -> dict[str, Any]:
@@ -405,7 +441,7 @@ class GeminiContentService:
             "is_safe": True,
             "reason": None,
             "lyrics": lyrics,
-            "tags": genre_tags,
+            "tags": f"{genre_tags}, {vocal_style}",
             "title": title,
         }
 
@@ -559,6 +595,7 @@ async def worker_loop(
                 name=job.name,
                 occasion=job.occasion,
                 genre=job.genre_name,
+                vocal=job.vocal_name,
             )
 
             await bot.send_audio(
@@ -757,16 +794,9 @@ async def msg_details(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(OrderStates.genre, F.data.startswith("gnr:"))
-async def cb_genre(
-    callback: CallbackQuery,
-    state: FSMContext,
-    gemini_service: GeminiContentService,
-) -> None:
+async def cb_genre(callback: CallbackQuery, state: FSMContext) -> None:
     """
-    Step 3 -> Step 4 & 5: Genre selected.
-    Calls Gemini API in JSON mode (moderation + lyrics) in the chosen language.
-    If safe: displays preview with mandatory disclaimer and approval button.
-    If unsafe: shows reason and keeps user at OrderStates.details.
+    Step 4 -> Step 5: Genre selected. Prompt for vocal voice (male, female, duet).
     """
     await callback.answer()
     data = await state.get_data()
@@ -777,10 +807,41 @@ async def cb_genre(
     genre_style = get_genre_style(genre_id)
 
     await state.update_data(genre_id=genre_id, genre_label=genre_label, genre_style=genre_style)
+    await state.set_state(OrderStates.vocal)
+
+    await callback.message.answer(
+        text=get_text("step_vocal", lang, genre=genre_label),
+        reply_markup=get_vocals_keyboard(lang),
+    )
+
+
+@router.callback_query(OrderStates.vocal, F.data.startswith("voc:"))
+async def cb_vocal(
+    callback: CallbackQuery,
+    state: FSMContext,
+    gemini_service: GeminiContentService,
+) -> None:
+    """
+    Step 5: Vocal voice selected.
+    Calls Gemini API in JSON mode (moderation + lyrics) in the chosen language.
+    If safe: displays preview with mandatory disclaimer and approval button.
+    If unsafe: shows reason and keeps user at OrderStates.details.
+    """
+    await callback.answer()
+    data = await state.get_data()
+    lang = data.get("lang", DEFAULT_LANGUAGE)
+
+    vocal_id = callback.data.split(":", 1)[1]
+    vocal_label = get_vocal_label(vocal_id, lang)
+    vocal_style = get_vocal_style(vocal_id)
+
+    await state.update_data(vocal_id=vocal_id, vocal_label=vocal_label, vocal_style=vocal_style)
 
     name = data.get("name", "Друг")
     occasion = data.get("occasion", "Праздник")
     details = data.get("details", "")
+    genre_label = data.get("genre_label", "Поп")
+    genre_style = data.get("genre_style", "pop")
 
     wait_msg = await callback.message.answer(get_text("generating_lyrics", lang))
 
@@ -791,6 +852,8 @@ async def cb_genre(
             details=details,
             genre_title=genre_label,
             genre_tags=genre_style,
+            vocal_title=vocal_label,
+            vocal_style=vocal_style,
             language=lang,
         )
     except Exception as err:
@@ -815,7 +878,16 @@ async def cb_genre(
 
     # Moderation passed: Step 5 preview
     lyrics = res.get("lyrics") or ""
-    tags = res.get("tags") or genre_style
+    tags = res.get("tags") or f"{genre_style}, {vocal_style}"
+    if vocal_style not in tags:
+        tags = f"{tags}, {vocal_style}"
+
+    vocal_header = "[Male Vocals]" if vocal_id == "male" else (
+        "[Female Vocals]" if vocal_id == "female" else "[Duet: Male and Female Vocals]"
+    )
+    if vocal_header not in lyrics:
+        lyrics = f"{vocal_header}\n\n{lyrics}"
+
     title = res.get("title") or f"Песня для {name}"
 
     await state.update_data(lyrics=lyrics, tags=tags, title=title)
@@ -826,6 +898,7 @@ async def cb_genre(
         lang,
         name=name,
         genre=genre_label,
+        vocal=vocal_label,
         occasion=occasion,
         lyrics=lyrics,
     )
@@ -874,6 +947,7 @@ async def cb_preview_action(
         name = data.get("name", "Друг")
         occasion = data.get("occasion", "Праздник")
         genre_label = data.get("genre_label", "Поп")
+        vocal_label = data.get("vocal_label", "Мужской вокал")
         tags = data.get("tags", "")
         lyrics = data.get("lyrics", "")
         title = data.get("title", f"Песня для {name}")
@@ -908,6 +982,7 @@ async def cb_preview_action(
                 name=name,
                 occasion=occasion,
                 genre_name=genre_label,
+                vocal_name=vocal_label,
                 lang=lang,
             )
             await queue.put(job)
@@ -978,6 +1053,7 @@ async def process_successful_payment(
     name = data.get("name", "Друг")
     occasion = data.get("occasion", "Праздник")
     genre_label = data.get("genre_label", "Поп")
+    vocal_label = data.get("vocal_label", "Мужской вокал")
     tags = data.get("tags", "")
     lyrics = data.get("lyrics", "")
     title = data.get("title", f"Песня для {name}")
@@ -1002,6 +1078,7 @@ async def process_successful_payment(
         name=name,
         occasion=occasion,
         genre_name=genre_label,
+        vocal_name=vocal_label,
         lang=lang,
     )
     await queue.put(job)

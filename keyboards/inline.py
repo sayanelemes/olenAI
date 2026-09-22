@@ -17,6 +17,7 @@ from locales.texts import (
     LANG_RU,
     OCCASIONS_LIST,
     OCCASIONS_MAP,
+    VOCALS_LIST,
     t,
 )
 
@@ -31,6 +32,10 @@ class OccasionCallback(CallbackData, prefix="occ"):
 
 class GenreCallback(CallbackData, prefix="gnr"):
     value: str
+
+
+class VocalCallback(CallbackData, prefix="voc"):
+    value: str  # "male", "female", "duet"
 
 
 class PreviewActionCallback(CallbackData, prefix="prev"):
@@ -68,6 +73,37 @@ def get_genres_kb(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     builder.adjust(2)
 
     # Add Cancel button as a full-width bottom row
+    builder.row(
+        InlineKeyboardButton(
+            text=t("btn_cancel", lang),
+            callback_data="cancel_order",
+        )
+    )
+    return builder.as_markup()
+
+
+def get_vocals_kb(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
+    """
+    Keyboard for selecting vocal voice:
+    Male | Female
+    Duet
+    Cancel
+    """
+    builder = InlineKeyboardBuilder()
+    vocals = VOCALS_LIST.get(lang) or VOCALS_LIST.get(DEFAULT_LANGUAGE, [])
+    for item in vocals[:2]:
+        builder.button(
+            text=item["label"],
+            callback_data=VocalCallback(value=item["id"]).pack(),
+        )
+    builder.adjust(2)
+    if len(vocals) > 2:
+        builder.row(
+            InlineKeyboardButton(
+                text=vocals[2]["label"],
+                callback_data=VocalCallback(value=vocals[2]["id"]).pack(),
+            )
+        )
     builder.row(
         InlineKeyboardButton(
             text=t("btn_cancel", lang),
@@ -151,6 +187,7 @@ def get_cancel_kb(lang: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
 # ---------------------------------------------------------------------------
 get_language_keyboard = get_language_kb
 get_genres_keyboard = get_genres_kb
+get_vocals_keyboard = get_vocals_kb
 get_preview_approval_keyboard = get_preview_kb
 get_occasions_keyboard = get_occasions_kb
 get_start_keyboard = get_start_kb

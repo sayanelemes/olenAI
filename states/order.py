@@ -9,6 +9,7 @@ class OrderStates(StatesGroup):
     name = State()              # Шаг 2: Ввод имени адресата (текст)
     details = State()           # Шаг 3: Ввод личных фактов и пожеланий (текст)
     genre = State()             # Шаг 4: Выбор музыкального стиля (Q-pop, Той, Дрилл, Акустика)
-    preview_approval = State()  # Шаги 4-5: Согласование текста и обязательный дисклеймер
+    vocal = State()             # Шаг 5: Выбор голоса (Мужской, Женский, Дуэт)
+    preview_approval = State()  # Согласование текста и обязательный дисклеймер
     waiting_payment = State()   # Ожидание оплаты Telegram Stars (XTR)
     generating_audio = State()  # Генерация трека в Suno (блокировка повторных кликов)

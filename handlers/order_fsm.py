@@ -13,9 +13,11 @@ from aiogram.types import (
 from keyboards.inline import (
     OccasionCallback,
     GenreCallback,
+    VocalCallback,
     PreviewActionCallback,
     get_occasions_keyboard,
     get_genres_keyboard,
+    get_vocals_keyboard,
     get_preview_approval_keyboard,
     get_cancel_keyboard,
     get_start_keyboard,
@@ -29,6 +31,8 @@ from locales import (
     DEFAULT_LANGUAGE,
     get_genre_label,
     get_genre_style,
+    get_vocal_label,
+    get_vocal_style,
     get_text,
 )
 
@@ -194,18 +198,16 @@ async def process_details(
 
 
 # ---------------------------------------------------------------------------
-# Step 3: Handle Genre -> Step 4: Moderate & Generate Lyrics via Gemini
+# Step 4: Handle Genre -> Step 5: Select Vocal Voice
 # ---------------------------------------------------------------------------
 @router.callback_query(OrderStates.genre, GenreCallback.filter())
 async def process_genre(
     callback: CallbackQuery,
     callback_data: GenreCallback,
     state: FSMContext,
-    llm_service: LLMService,
 ) -> None:
     """
-    Save chosen style and execute Step 4:
-    Unified Gemini call for moderation and lyrics generation in JSON mode.
+    Save chosen genre style and prompt for vocal voice (Step 5).
     """
     await callback.answer()
     genre_style = callback_data.value
@@ -213,9 +215,38 @@ async def process_genre(
 
     data = await state.get_data()
     lang = data.get("lang", DEFAULT_LANGUAGE)
+    genre_label = get_genre_label(genre_style, lang)
+
+    await state.set_state(OrderStates.vocal)
+    await callback.message.answer(
+        text=get_text("step_vocal", lang, genre=genre_label),
+        reply_markup=get_vocals_keyboard(lang),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Handle Vocal Voice -> Moderate & Generate Lyrics via Gemini
+# ---------------------------------------------------------------------------
+@router.callback_query(OrderStates.vocal, VocalCallback.filter())
+async def process_vocal(
+    callback: CallbackQuery,
+    callback_data: VocalCallback,
+    state: FSMContext,
+    llm_service: LLMService,
+) -> None:
+    """
+    Save chosen vocal voice and execute Gemini moderation & lyrics generation.
+    """
+    await callback.answer()
+    vocal_id = callback_data.value
+    await state.update_data(vocal=vocal_id)
+
+    data = await state.get_data()
+    lang = data.get("lang", DEFAULT_LANGUAGE)
     name = data.get("name", "Друг")
     occasion = data.get("occasion", "Праздник")
     details = data.get("details", "")
+    genre_style = data.get("genre", "pop")
 
     await _moderate_and_generate_lyrics_step(
         message=callback.message,
@@ -225,12 +256,13 @@ async def process_genre(
         occasion=occasion,
         details=details,
         genre=genre_style,
+        vocal=vocal_id,
         lang=lang,
     )
 
 
 # ---------------------------------------------------------------------------
-# Helper: Step 4 (Gemini JSON Moderation + Lyrics) -> Step 5 (Preview + Disclaimer)
+# Helper: Gemini JSON Moderation + Lyrics -> Preview + Disclaimer
 # ---------------------------------------------------------------------------
 async def _moderate_and_generate_lyrics_step(
     message: Message,
@@ -240,20 +272,21 @@ async def _moderate_and_generate_lyrics_step(
     occasion: str,
     details: str,
     genre: str,
+    vocal: str,
     lang: str,
 ) -> None:
     """
-    Unified Step 4 & 5:
     Calls Gemini in JSON mode:
-    - If is_safe == False: outputs clear reason, does NOT reset occasion/genre,
-      keeps user at OrderStates.details to rephrase personal facts.
-    - If is_safe == True: shows lyrics, title, mandatory AI disclaimer, and approval keyboard.
+    - If is_safe == False: outputs clear reason, keeps user at OrderStates.details.
+    - If is_safe == True: shows lyrics, vocal, title, mandatory AI disclaimer, and approval keyboard.
     """
     status_msg = await message.answer(get_text("generating_lyrics", lang))
 
     genre_label = get_genre_label(genre, lang)
     genre_style = get_genre_style(genre)
-    full_genre_prompt = f"{genre_label} ({genre_style})"
+    vocal_label = get_vocal_label(vocal, lang)
+    vocal_style = get_vocal_style(vocal)
+    full_genre_prompt = f"{genre_label} ({genre_style}), vocal: {vocal_label} ({vocal_style})"
 
     try:
         res = await llm_service.moderate_and_generate_lyrics(
@@ -294,7 +327,7 @@ async def _moderate_and_generate_lyrics_step(
     lyrics = res.get("lyrics", "").strip()
     title = res.get("title", f"Песня для {name}").strip()
 
-    await state.update_data(lyrics=lyrics, title=title)
+    await state.update_data(lyrics=lyrics, title=title, vocal_label=vocal_label, vocal_style=vocal_style)
     await state.set_state(OrderStates.preview_approval)
 
     preview_text = get_text(
@@ -302,6 +335,7 @@ async def _moderate_and_generate_lyrics_step(
         lang,
         name=name,
         genre=genre_label,
+        vocal=vocal_label,
         occasion=occasion,
         lyrics=lyrics,
     )
